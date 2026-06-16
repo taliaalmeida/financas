@@ -139,6 +139,7 @@ async function addTx() {
       added_by: state.userName,
       created_at: serverTimestamp(),
     });
+
     setState({
       formOpen:false,
       form:{ type:"despesa", amount:"", category:"moradia", description:"", date:today() }
