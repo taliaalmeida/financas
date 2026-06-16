@@ -51,7 +51,6 @@ const CATS = {
   ],
 };
 
-// Paleta neutra (sem roxo/rosa/vermelho/verde como destaque de gênero)
 const CAT_COLORS = {
   salario:"#94A3B8",freelance:"#64748B",investimento:"#94A3B8",outros_r:"#CBD5E1",
   moradia:"#64748B",alimentacao:"#94A3B8",transporte:"#A3BFFA",saude:"#94A3B8",
@@ -82,6 +81,7 @@ let state = {
   tab:"home", selectedMonth:nowMK(),
   loading:false, syncing:false,
   formOpen:false, goalOpen:false, deleteConfirm:null,
+  editingTxId: null,
   form:{ type:"despesa", amount:"", category:"moradia", description:"", date:today() },
   goalForm:{ label:"", target:"", current:"" },
   loginError:"",
@@ -124,30 +124,51 @@ function subscribeRealtime() {
   }, (err) => console.error("Erro ao ouvir metas:", err));
 }
 
-async function addTx() {
+async function saveTx() {
   const f = state.form;
-  if (!f.amount || isNaN(parseFloat(f.amount.replace(",",".")))) return;
+  if (!f.amount || isNaN(parseFloat(String(f.amount).replace(",",".")))) return;
   const cat = CATS[f.type].find(c=>c.id===f.category);
+  const data = {
+    room_code: state.roomCode,
+    type: f.type,
+    amount: parseFloat(String(f.amount).replace(",",".")),
+    category: f.category,
+    description: f.description || cat?.label || "",
+    date: f.date,
+    added_by: state.userName,
+    updated_at: serverTimestamp(),
+  };
+
   try {
-    await addDoc(collection(db, "transactions"), {
-      room_code: state.roomCode,
-      type: f.type,
-      amount: parseFloat(f.amount.replace(",",".")),
-      category: f.category,
-      description: f.description || cat?.label || "",
-      date: f.date,
-      added_by: state.userName,
-      created_at: serverTimestamp(),
-    });
+    if (state.editingTxId) {
+      await updateDoc(doc(db, "transactions", state.editingTxId), data);
+    } else {
+      await addDoc(collection(db, "transactions"), { ...data, created_at: serverTimestamp() });
+    }
 
     setState({
       formOpen:false,
+      editingTxId: null,
       form:{ type:"despesa", amount:"", category:"moradia", description:"", date:today() }
     });
   } catch(err) {
     console.error("Erro ao salvar lançamento:", err);
     alert("Erro ao salvar: " + err.message);
   }
+}
+
+function openEditTx(tx) {
+  setState({
+    formOpen: true,
+    editingTxId: tx.id,
+    form: {
+      type: tx.type,
+      amount: tx.amount,
+      category: tx.category,
+      description: tx.description,
+      date: tx.date
+    }
+  });
 }
 
 async function delTx(id) {
@@ -166,8 +187,8 @@ async function addGoal() {
     await addDoc(collection(db, "goals"), {
       room_code: state.roomCode,
       label: f.label,
-      target: parseFloat(f.target.replace(",",".")),
-      current: parseFloat(f.current.replace(",","."))||0,
+      target: parseFloat(String(f.target).replace(",",".")),
+      current: parseFloat(String(f.current).replace(",","."))||0,
       created_by: state.userName,
       created_at: serverTimestamp(),
     });
@@ -238,6 +259,7 @@ function derived() {
 
 function render() {
   const root = document.getElementById("root");
+  if (!root) return;
   root.innerHTML = "";
   if (state.screen==="login") { root.appendChild(renderLogin()); return; }
   root.appendChild(renderApp());
@@ -374,12 +396,9 @@ function renderApp() {
           el("span",{className:"tx-emoji"},cat?.emoji||"💳"),
           el("div",{className:"tx-info"},
             el("div",{className:"tx-desc"},tx.description),
-            el("div",{className:"tx-meta"},new Date(tx.date+"T12:00:00").toLocaleDateString("pt-BR")+" · "+tx.added_by)
+            el("div",{className:"tx-meta"},tx.date + " • " + tx.added_by)
           ),
-          el("div",{style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:"4px"}},
-            el("span",{className:"tx-amount",style:{color:tx.type==="receita"?"#CBD5E1":"#A3BFFA"}},(tx.type==="receita"?"+":"-")+fmt(tx.amount)),
-            tx.type==="despesa"?el("button",{className:"tx-paid-btn"+(isPaid?" paid":""),onClick:()=>togglePaid(tx.id,isPaid)},isPaid?"✓ Quitado":"✓"):null
-          )
+          el("div",{className:"tx-amount",style:{color:tx.type==="receita"?"#A3BFFA":"#94A3B8"}},(tx.type==="receita"?"+":"-")+fmt(tx.amount))
         ));
       });
     }
@@ -394,45 +413,44 @@ function renderApp() {
           el("span",{className:"tx-emoji"},cat?.emoji||"💳"),
           el("div",{className:"tx-info"},
             el("div",{className:"tx-desc"},tx.description),
-            el("div",{className:"tx-meta"},(cat?.label||"")+" · "+new Date(tx.date+"T12:00:00").toLocaleDateString("pt-BR")+" · "+tx.added_by)
+            el("div",{className:"tx-meta"},tx.date + " • " + tx.added_by)
           ),
-          el("div",{style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:"4px"}},
-            el("span",{className:"tx-amount",style:{color:tx.type==="receita"?"#CBD5E1":"#A3BFFA"}},(tx.type==="receita"?"+":"-")+fmt(tx.amount)),
-            tx.type==="despesa"?el("button",{className:"tx-paid-btn"+(isPaid?" paid":""),onClick:()=>togglePaid(tx.id,isPaid)},isPaid?"✓ Quitado":"✓"):null,
-            el("button",{className:"tx-del",onClick:()=>setState({deleteConfirm:tx.id})},"🗑️")
+          el("div",{style:{textAlign:"right",display:"flex",flexDirection:"column",gap:"4px"}},
+            el("div",{className:"tx-amount",style:{color:tx.type==="receita"?"#A3BFFA":"#94A3B8"}},(tx.type==="receita"?"+":"-")+fmt(tx.amount)),
+            el("div",{style:{display:"flex",gap:"6px",justifyContent:"flex-end"}},
+              tx.type==="despesa" ? el("button",{className:"tx-paid-btn"+(isPaid?" paid":""),onClick:()=>togglePaid(tx.id,isPaid)},isPaid?"Pago":"Pagar") : null,
+              el("button",{className:"tx-del",style:{color:"#94a3b8"},onClick:()=>openEditTx(tx)},"✏️"),
+              el("button",{className:"tx-del",onClick:()=>setState({deleteConfirm:tx.id})},"🗑️")
+            )
           )
         ));
       });
     }
   } else if (tab==="graficos") {
-    const donutCard=el("div",{className:"chart-card"});
-    donutCard.appendChild(el("p",{className:"chart-title"},"Despesas por categoria"));
-
-    const donutRow=el("div",{className:"donut-row"});
+    const chartCard = el("div",{className:"chart-card"});
+    chartCard.appendChild(el("p",{className:"chart-title"},"Gastos por categoria"));
+    const donutRow = el("div",{className:"donut-row"});
     donutRow.appendChild(renderDonut(despCat));
-
-    const legend=el("div",{style:{flex:1}});
-    despCat.slice(0,5).forEach(cat=>{
+    const legend = el("div",{style:{flex:1}});
+    despCat.forEach(c=>{
       legend.appendChild(el("div",{className:"legend-item"},
-        el("div",{className:"legend-dot",style:{background:cat.color}}),
-        el("span",{className:"legend-label"},cat.fullLabel),
-        el("span",{className:"legend-val"},fmt(cat.value))
+        el("div",{className:"legend-dot",style:{background:c.color}}),
+        el("span",{className:"legend-label"},c.fullLabel),
+        el("span",{className:"legend-val"},fmt(c.value))
       ));
     });
-
     donutRow.appendChild(legend);
-    donutCard.appendChild(donutRow);
-    content.appendChild(donutCard);
+    chartCard.appendChild(donutRow);
+    content.appendChild(chartCard);
 
-    const barCard=el("div",{className:"chart-card"});
-    barCard.appendChild(el("p",{className:"chart-title"},"Despesas — 6 meses"));
-
-    const barChart=el("div",{className:"bar-chart"});
+    const barCard = el("div",{className:"chart-card"});
+    barCard.appendChild(el("p",{className:"chart-title"},"Histórico de Despesas"));
+    const barChart = el("div",{className:"bar-chart"});
     last6.forEach(m=>{
-      const pct=(m.desp/maxBar)*100;
+      const h=maxBar>0?(m.desp/maxBar)*100:0;
       barChart.appendChild(el("div",{className:"bar-col"},
         el("div",{className:"bar-col-inner"},
-          el("div",{className:"bar-fill",style:{height:(pct||0)+"%",minHeight:m.desp>0?"4px":"0",background:m.isSelected?"#A3BFFA":"rgba(203,213,225,0.35)"}})
+          el("div",{className:"bar-fill",style:{height:h+"%",background:m.isSelected?"#A3BFFA":"#1e293b"}})
         ),
         el("span",{className:"bar-label"+(m.isSelected?" active":"")},m.label)
       ));
@@ -440,52 +458,41 @@ function renderApp() {
     barCard.appendChild(barChart);
     content.appendChild(barCard);
   } else if (tab==="metas") {
-    const goals = state.goals;
-    if (goals.length===0) {
-      content.appendChild(el("div",{className:"empty"},el("div",{className:"eicon"},"🎯"),el("p",{},"Nenhuma meta ainda")));
+    content.appendChild(el("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}},
+      el("p",{className:"section-title",style:{margin:0}},"Minhas Metas"),
+      el("button",{className:"icon-btn",onClick:()=>setState({goalOpen:true})},"+ Nova Meta")
+    ));
+    if (state.goals.length===0) {
+      content.appendChild(el("div",{className:"empty"},el("div",{className:"eicon"},"🎯"),el("p",{},"Nenhuma meta criada")));
     } else {
-      goals.forEach(goal=>{
-        const pct=Math.min((parseFloat(goal.current)/parseFloat(goal.target))*100,100);
-        const card=el("div",{className:"goal-card"});
-        const gh=el("div",{className:"goal-header"});
-
-        gh.appendChild(el("div",{},
-          el("div",{className:"goal-name"},goal.label),
-          el("div",{className:"goal-sub"},"Meta: "+fmt(goal.target)+" · por "+goal.created_by)
-        ));
-
-        gh.appendChild(el("button",{className:"goal-del",onClick:()=>delGoal(goal.id)},"✕"));
-
-        card.appendChild(gh);
-
-        card.appendChild(el("div",{className:"goal-row"},
-          el("div",{className:"goal-bar-bg"},
-            el("div",{className:"goal-bar-fill",style:{width:pct+"%",background: pct>=100?"#CBD5E1":"#A3BFFA"}})
+      state.goals.forEach(g=>{
+        const pct=g.target>0?Math.min((g.current/g.target)*100,100):0;
+        content.appendChild(el("div",{className:"goal-card"},
+          el("div",{className:"goal-header"},
+            el("div",{},el("div",{className:"goal-name"},g.label),el("div",{className:"goal-sub"},"Alvo: "+fmt(g.target))),
+            el("button",{className:"goal-del",onClick:()=>delGoal(g.id)},"🗑️")
           ),
-          el("span",{style:{fontSize:"12px",fontWeight:700,color:pct>=100?"#CBD5E1":"#A3BFFA",minWidth:"34px"}},Math.round(pct)+"%")
+          el("div",{className:"goal-row"},
+            el("div",{className:"goal-bar-bg"},el("div",{className:"goal-bar-fill",style:{width:pct+"%",background:"#A3BFFA"}})),
+            el("span",{style:{fontSize:"12px",fontWeight:700}},Math.round(pct)+"%")
+          ),
+          el("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+            el("div",{className:"goal-achieved"},"Economizado: "+fmt(g.current)),
+            el("input",{type:"number",className:"goal-input",placeholder:"Valor",onBlur:e=>updateGoal(g.id,e.target.value)})
+          )
         ));
-
-        card.appendChild(el("div",{style:{display:"flex",alignItems:"center",gap:"8px"}},
-          el("span",{style:{fontSize:"12px",color:"#64748b"}},"Economizado: R$"),
-          el("input",{type:"number",className:"goal-input",value:goal.current,onChange:e=>updateGoal(goal.id,e.target.value)})
-        ));
-
-        if(pct>=100) card.appendChild(el("div",{className:"goal-achieved"},"🎉 Meta atingida!"));
-        content.appendChild(card);
       });
     }
-
-    content.appendChild(el("button",{className:"btn-primary",style:{marginTop:"4px"},onClick:()=>setState({goalOpen:true})},"+ Nova Meta"));
   }
 
   app.appendChild(content);
 
   // FAB
-  app.appendChild(el("button",{className:"fab",onClick:()=>setState({formOpen:true})},"+"));
+  app.appendChild(el("button",{className:"fab",onClick:()=>setState({formOpen:true, editingTxId:null, form:{type:"despesa",amount:"",category:"moradia",description:"",date:today()}})},"+"));
 
   // BOTTOM NAV
-  const nav=el("div",{className:"bottom-nav"});
-  [["home","🏠","Início"],["lancamentos","📋","Lançamentos"],["graficos","📊","Gráficos"],["metas","🎯","Metas"]].forEach(([key,emoji,label])=>{
+  const nav = el("div",{className:"bottom-nav"});
+  [["home","🏠","Home"],["lancamentos","📋","Lançamentos"],["graficos","📊","Gráficos"],["metas","🎯","Metas"]].forEach(([key,emoji,label])=>{
     nav.appendChild(el("button",{className:"nav-btn"+(tab===key?" active":""),onClick:()=>setState({tab:key})},
       el("span",{className:"nav-emoji"},emoji),
       el("span",{className:"nav-label"},label)
@@ -493,15 +500,15 @@ function renderApp() {
   });
   app.appendChild(nav);
 
-  // MODAL: Novo Lançamento
+  // MODAL: Lançamento (Novo ou Edição)
   if (state.formOpen) {
     const f=state.form;
     const overlay=el("div",{className:"modal-overlay"});
     const modal=el("div",{className:"modal"});
 
     modal.appendChild(el("div",{className:"modal-header"},
-      el("span",{className:"modal-title"},"Novo Lançamento"),
-      el("button",{className:"modal-close",onClick:()=>setState({formOpen:false})},"✕")
+      el("span",{className:"modal-title"},state.editingTxId ? "Editar Lançamento" : "Novo Lançamento"),
+      el("button",{className:"modal-close",onClick:()=>setState({formOpen:false, editingTxId:null})},"✕")
     ));
 
     const typeGrid=el("div",{className:"type-grid"});
@@ -531,10 +538,10 @@ function renderApp() {
     const dateInput=el("input",{type:"date",className:"modal-input",value:f.date,onChange:e=>setState({form:{...state.form,date:e.target.value}})});
     modal.appendChild(dateInput);
 
-    modal.appendChild(el("button",{className:"btn-primary",onClick:()=>{ state.form.amount=amtInput.value; state.form.description=descInput.value; addTx(); }},"Salvar Lançamento"));
+    modal.appendChild(el("button",{className:"btn-primary",onClick:()=>{ state.form.amount=amtInput.value; state.form.description=descInput.value; saveTx(); }}, state.editingTxId ? "Atualizar Lançamento" : "Salvar Lançamento"));
 
     overlay.appendChild(modal);
-    overlay.addEventListener("click",e=>{ if(e.target===overlay) setState({formOpen:false}); });
+    overlay.addEventListener("click",e=>{ if(e.target===overlay) setState({formOpen:false, editingTxId:null}); });
     app.appendChild(overlay);
   }
 
@@ -731,7 +738,7 @@ input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
 .modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #64748b; }
 .type-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
 .type-btn { padding: 11px; border-radius: 12px; border: 2px solid rgba(255,255,255,0.08); background: transparent; color: #64748b; font-weight: 700; cursor: pointer; font-size: 14px; font-family: inherit; transition: all 0.2s; }
-.type-btn.desp.active { border-color: #A3BFFA; background: rgba(163,191,250,0.12); color: #A3BFFA; }
+.type-btn.desp.active { border-color: #94A3B8; background: rgba(148,163,184,0.12); color: #94A3B8; }
 .type-btn.rec.active { border-color: #A3BFFA; background: rgba(203,213,225,0.12); color: #A3BFFA; }
 .modal-label { color: #64748b; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 5px; }
 .modal-input { width: 100%; padding: 12px 14px; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; background: rgba(255,255,255,0.07); color: white; font-size: 14px; outline: none; margin-bottom: 12px; font-family: inherit; }
@@ -754,4 +761,3 @@ select option { background: #1e293b; }
 <div id="root"></div>
 </body>
 </html>
-
