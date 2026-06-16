@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-<title>Finanças em Dupla</title>
+<title>Finanças</title>
 <meta name="theme-color" content="#0f172a" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="Finanças Dupla" />
+<meta name="apple-mobile-web-app-title" content="Finanças" />
 
 <!-- Firebase SDK via CDN -->
 <script type="module">
@@ -246,9 +246,9 @@ function renderLogin() {
   const wrap = el("div",{className:"login"});
   const inner = el("div",{style:{width:"100%",maxWidth:"380px"}});
   inner.appendChild(el("div",{className:"login-title"},
-    el("div",{className:"icon"},"💜"),
-    el("h1",{},"Finanças em Dupla"),
-    el("p",{},"Juntas é mais fácil 🌸")
+    el("div",{className:"icon"},"🏦"),
+    el("h1",{},"Finanças"),
+    el("p",{},"O controle das suas finanças em um único lugar")
   ));
 
   const card = el("div",{className:"login-card"});
@@ -256,12 +256,12 @@ function renderLogin() {
 
   card.appendChild(el("div",{className:"field"},
     el("label",{},"Seu nome"),
-    el("input",{type:"text",placeholder:"Ex: Nati",id:"inp-name"})
+    el("input",{type:"text",placeholder:"Ex: Maria",id:"inp-name"})
   ));
 
   card.appendChild(el("div",{className:"field"},
     el("label",{},"Código da sala"),
-    el("input",{type:"text",className:"code",placeholder:"Ex: NATI2025",id:"inp-code",maxlength:"12"}),
+    el("input",{type:"text",className:"code",placeholder:"Ex: CASA123",id:"inp-code",maxlength:"12"}),
     el("p",{className:"hint"},"Crie qualquer código e use o mesmo com sua irmã 👯")
   ));
 
